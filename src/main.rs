@@ -1,17 +1,45 @@
-use x11rb::{connection::Connection};
-use x11rb::protocol::xproto::{ConfigureWindowAux, ConnectionExt, GrabMode, ModMask} ;
-mod keybinds;
-use crate::keybinds::Action::Spawn;
-use crate::keybinds::Keybind;
+use std::sync::{LazyLock, Mutex};
 
+use log::error;
+use x11rb::connection::Connection;
+use x11rb::protocol::xproto::{ConnectionExt, GrabMode, ModMask};
+
+mod event_handler;
+mod event_loop;
+mod keybinds;
+mod tiling;
+
+use crate::event_loop::{configure_windows, key_request, map_request, window_remover};
+use crate::keybinds::Action::{KillWindows, Spawn};
+use crate::keybinds::Keybind;
+use crate::keybinds::{Action::Quit, key_mods::*, keys};
+use crate::tiling::{TilingType, Workspace};
 
 // File configuration
 include!("../config.rs");
 
+// Окна на на столе
+pub static WORKSPACE: LazyLock<Mutex<Workspace>> =
+    LazyLock::new(|| Mutex::new(Workspace::default()));
+
+pub static SCREEN_SIZE_WIDTH: LazyLock<Mutex<u16>> = LazyLock::new(|| Mutex::new(u16::default()));
+pub static SCREEN_SIZE_HEIGHT: LazyLock<Mutex<u16>> = LazyLock::new(|| Mutex::new(u16::default()));
+
+// Тип тайлинга
+pub static TILING: TilingType = TilingType::Stack;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Логирование для отладки
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp_secs()
+        .init();
+
     let (conn, screen_sum) = x11rb::connect(None)?;
-    // Настройки экрана
     let screen = &conn.setup().roots[screen_sum];
+
+    // Получение размеров экрана
+    *SCREEN_SIZE_WIDTH.lock()? = screen.width_in_pixels;
+    *SCREEN_SIZE_HEIGHT.lock()? = screen.height_in_pixels;
 
     // Попытка захвата экрана для проверки запускается ли сессия
     let change = x11rb::protocol::xproto::ChangeWindowAttributesAux::default().event_mask(
@@ -23,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Проверка на запуск X11 сесcии
     if result.is_err() {
-        eprintln!("Не удалось захватить экран. Возможно запущен уже другой wm.");
+        error!("Ошибка запуска wm. Возможно уже запущенна другая X11 сессия");
         std::process::exit(1);
     }
 
@@ -36,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ModMask::from(bind.mods),
             bind.button,
             GrabMode::ASYNC,
-            GrabMode::ASYNC
+            GrabMode::ASYNC,
         )?;
     }
 
@@ -46,39 +74,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let event = conn.wait_for_event()?;
 
         match event {
-            // Первичная настройка геометрии
-            x11rb::protocol::Event::ConfigureRequest(e) => {
-                let aux = ConfigureWindowAux::from_configure_request(&e);
-                conn.configure_window(e.window, &aux)?;
-            }
-            // Разрешение на отображение
-            x11rb::protocol::Event::MapRequest(e) => {
-                conn.map_window(e.window)?;
-                conn.flush()?;
-            }
-            // Обработка событий клавишь
-            x11rb::protocol::Event::KeyPress(e) => {
-                let clean_state = u16::from(e.state) & !(0x0002 | 0x0010);
-                println!("Кнопка-{} Модификации-{:?}", e.detail, e.state);
+            x11rb::protocol::Event::ConfigureRequest(e) => configure_windows(&conn, e)?,
 
-                if let Some(bind) = KEYBINDS.iter().find(|b| b.button == e.detail && b.mods == clean_state) {
-                    match bind.action {
-                        Quit => {
-                            println!("Закрытие оконного менеджера");
-                            break Ok(());
-                        }
-                        Spawn(command) => {
-                            #[allow(clippy::zombie_processes)]
-                            std::process::Command::new("sh")
-                                .arg("-c")
-                                .arg(command)
-                                .spawn()
-                                .expect("Не удалось запустить команду");
-                        }
-                        _ => {}
-                    }
-                } 
-            }
+            // Разрешение на отображение
+            x11rb::protocol::Event::MapRequest(e) => map_request(&conn, e)?,
+
+            x11rb::protocol::Event::UnmapNotify(e) => window_remover(&conn, e)?,
+            // Обработка событий клавишь
+            x11rb::protocol::Event::KeyPress(e) => key_request(&conn, e, screen)?,
             _ => {}
         }
     }

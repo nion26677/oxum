@@ -4,4 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+env_logger = "0.11.11"
+log = "0.4.33"
 x11rb = { version = "0.13.2", features = ["all-extensions", "allow-unsafe-code", "extra-traits"] }
+
+[profile.release]
+debug = true  # если нужен release с символами

@@ -1,8 +1,8 @@
-use crate::keybinds::{Action::Quit, key_mods::*, keys};
-
+const MASTER_RATIO: f32 = 0.50;
 const MOD: u16 = SUPER;
 
 pub const KEYBINDS: &[Keybind] = &[
-    Keybind::new(&[MOD], keys::L, Quit),
-    Keybind::new(&[MOD], keys::Q, Spawn("rio"))
+    Keybind::new(&[MOD, SHIFT], keys::L, Quit),
+    Keybind::new(&[MOD], keys::Q, Spawn("rio")),
+    Keybind::new(&[MOD], keys::C, KillWindows),
 ];

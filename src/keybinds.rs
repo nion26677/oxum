@@ -45,34 +45,35 @@ pub mod keys {
     pub const M: u8 = 58;
 
     // Системные и управляющие
-    pub const ESC:        u8 = 9;
-    pub const ENTER:      u8 = 36;
-    pub const SPACE:      u8 = 65;
-    pub const TAB:        u8 = 23;
-    pub const BACKSPACE:  u8 = 22;
+    pub const ESC: u8 = 9;
+    pub const ENTER: u8 = 36;
+    pub const SPACE: u8 = 65;
+    pub const TAB: u8 = 23;
+    pub const BACKSPACE: u8 = 22;
 
     // Стрелочный блок
-    pub const UP:    u8 = 111;
-    pub const DOWN:  u8 = 116;
-    pub const LEFT:  u8 = 113;
+    pub const UP: u8 = 111;
+    pub const DOWN: u8 = 116;
+    pub const LEFT: u8 = 113;
     pub const RIGHT: u8 = 114;
 
     // Функциональные (F-ряд)
-    pub const F1:  u8 = 67;
-    pub const F2:  u8 = 68;
-    pub const F3:  u8 = 69;
-    pub const F4:  u8 = 70;
-    pub const F5:  u8 = 71;
-    pub const F6:  u8 = 72;
-    pub const F7:  u8 = 73;
-    pub const F8:  u8 = 74;
-    pub const F9:  u8 = 75;
+    pub const F1: u8 = 67;
+    pub const F2: u8 = 68;
+    pub const F3: u8 = 69;
+    pub const F4: u8 = 70;
+    pub const F5: u8 = 71;
+    pub const F6: u8 = 72;
+    pub const F7: u8 = 73;
+    pub const F8: u8 = 74;
+    pub const F9: u8 = 75;
     pub const F10: u8 = 76;
     pub const F11: u8 = 95;
     pub const F12: u8 = 96;
 }
 
 /// Действия, которые могут выполнять кеймапы
+#[derive(Clone, Copy)]
 pub enum Action {
     Spawn(&'static str),
     KillWindows,
@@ -83,9 +84,9 @@ pub enum Action {
 #[allow(unused)]
 pub mod key_mods {
     pub const SHIFT: u16 = 1 << 0;
-    pub const CAPS:  u16 = 1 << 1;
-    pub const CTRL:  u16 = 1 << 2;
-    pub const ALT:   u16 = 1 << 3;
+    pub const CAPS: u16 = 1 << 1;
+    pub const CTRL: u16 = 1 << 2;
+    pub const ALT: u16 = 1 << 3;
     pub const SUPER: u16 = 1 << 6;
 }
 
@@ -104,6 +105,10 @@ impl Keybind {
             mask |= mods[i];
             i += 1;
         }
-        Self { mods: mask, button, action }
+        Self {
+            mods: mask,
+            button,
+            action,
+        }
     }
 }

@@ -1,6 +1,5 @@
 use crate::{
-    KEYBINDS, SCREEN_SIZE_HEIGHT, SCREEN_SIZE_WIDTH, TILING, WORKSPACE,
-    event_handler::action_for_window,
+    BORDER_WIDTH, FOCUSED_COLOR, KEYBINDS, SCREEN_SIZE_HEIGHT, SCREEN_SIZE_WIDTH, TILING, UNFOCUSED_COLOR, WORKSPACE, event_handler::action_for_window
 };
 use log::{debug, info};
 use x11rb::{
@@ -12,7 +11,6 @@ use x11rb::{
     },
     rust_connection::RustConnection,
 };
-
 /// Создаёт конфигурацию для настройки окна
 pub fn configure_windows(
     conn: &RustConnection,
@@ -21,7 +19,10 @@ pub fn configure_windows(
     debug!("ConfigureRequest от {}", e.window);
 
     let workspace = WORKSPACE.lock().unwrap();
-    let aux = ConfigureWindowAux::new();
+
+    // Заполняем aux параметрами, предложенными композитором
+    let aux = ConfigureWindowAux::from_configure_request(&e); 
+
     conn.configure_window(e.window, &aux)?;
     if workspace.windows.contains(&e.window) {
         TILING.arrange(
@@ -39,19 +40,22 @@ pub fn map_request(
     conn: &RustConnection,
     e: MapRequestEvent,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let client_win = e.window;
+    let win = e.window;
 
     let mut workspace = WORKSPACE.lock().unwrap();
 
-    if !workspace.windows.contains(&client_win) {
-        workspace.windows.push(client_win);
+    if !workspace.windows.contains(&win) {
+        workspace.windows.push(win);
     }
 
-    let aux = ChangeWindowAttributesAux::new()
-        .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::FOCUS_CHANGE);
-    conn.change_window_attributes(client_win, &aux)?;
+    conn.configure_window(win, &ConfigureWindowAux::new().border_width(BORDER_WIDTH))?;
 
-    conn.map_window(client_win)?;
+    let aux = ChangeWindowAttributesAux::new()
+        .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::FOCUS_CHANGE)
+        .border_pixel(UNFOCUSED_COLOR);
+    conn.change_window_attributes(win, &aux)?;
+
+    conn.map_window(win)?;
 
     TILING.arrange(
         &conn,
@@ -60,7 +64,7 @@ pub fn map_request(
         &workspace,
     )?;
 
-    conn.set_input_focus(InputFocus::POINTER_ROOT, client_win, CURRENT_TIME)?;
+    conn.set_input_focus(InputFocus::POINTER_ROOT, win, CURRENT_TIME)?;
     conn.flush()?;
     Ok(())
 }
@@ -98,15 +102,43 @@ pub fn key_request(
     e: KeyPressEvent,
     screen: &Screen,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Клавиши для игнорирования
+    // Клавиши для игнорирования CapsLock | NumLock
     let clean_state = u16::from(e.state) & !(0x0002 | 0x0010);
     debug!("Кнопка-{} Модификации-{:?}", e.detail, e.state);
 
     if let Some(bind) = KEYBINDS
         .iter()
-        .find(|b| b.button == e.detail && b.mods == clean_state)
+        .find(|b| b.keysym == e.detail && b.mods == clean_state)
     {
-        action_for_window(&conn, bind.action, screen)?;
+        action_for_window(conn, bind.action, screen)?;
+    }
+    Ok(())
+}
+
+// Создание рамки окну для окна в фокуса
+pub fn focus_in(
+    conn: &RustConnection,
+    e: x11rb::protocol::xproto::FocusInEvent,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = WORKSPACE.lock().unwrap();
+    if workspace.windows.contains(&e.event) {
+        let aux = ChangeWindowAttributesAux::new().border_pixel(FOCUSED_COLOR);
+        conn.change_window_attributes(e.event, &aux)?;
+        conn.flush()?;
+    }
+    Ok(())
+}
+
+// Создание рамки окну без фокуса
+pub fn focus_out(
+    conn: &RustConnection,
+    e: x11rb::protocol::xproto::FocusOutEvent,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = WORKSPACE.lock().unwrap();
+    if workspace.windows.contains(&e.event) {
+        let aux = ChangeWindowAttributesAux::new().border_pixel(UNFOCUSED_COLOR);
+        conn.change_window_attributes(e.event, &aux)?;
+        conn.flush()?;
     }
     Ok(())
 }

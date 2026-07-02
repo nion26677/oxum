@@ -1,14 +1,14 @@
-use log::info;
+use log::{debug, error, info};
 use x11rb::{
     CURRENT_TIME,
     connection::Connection,
     protocol::xproto::{
-        AtomEnum, ClientMessageData, ClientMessageEvent, ConnectionExt, EventMask, Screen,
+        AtomEnum, ClientMessageData, ClientMessageEvent, ConnectionExt, EventMask, InputFocus, Screen
     },
     rust_connection::RustConnection,
 };
 
-use crate::keybinds::Action;
+use crate::{WORKSPACE, keybinds::{Action, Direction}};
 
 const PROP_LIST_LEN: u32 = 100;
 const POINTER_ROOT: u32 = 1;
@@ -23,24 +23,28 @@ pub fn action_for_window(
         Action::Quit => quit(),
         Action::Spawn(command) => spawn_program(command),
         Action::KillWindows => kill_focused_window(conn, screen)?,
+        Action::Focus(d) => cycle_focus(conn, d)?,
     }
     Ok(())
 }
 
 /// Завершить работу оконного менеджера.
 fn quit() {
-    println!("Закрытие оконного менеджера");
+    debug!("Закрытие оконного менеджера");
     std::process::exit(0);
 }
 
 /// Запустить внешнюю программу через оболочку.
 fn spawn_program(command: &'static str) {
     #[allow(clippy::zombie_processes)]
-    std::process::Command::new("sh")
+    let procces = std::process::Command::new("sh")
         .arg("-c")
         .arg(command)
-        .spawn()
-        .expect("Не удалось запустить команду");
+        .spawn();
+
+    if let Err(e) = procces {
+        error!("Не удалось запустить процесс с ошибкой: {}", e);
+    }
 }
 
 /// Закрыть (или принудительно убить) окно, находящееся в фокусе.
@@ -54,27 +58,27 @@ fn kill_focused_window(
     let atoms = WmAtoms::intern(conn)?;
 
     // 2. Определяем целевое окно: фокус или дочернее окно под курсором.
-    let Some(target) = resolve_focused_window(conn, screen)? else {
-        println!("Фокус на Root или отсутствует. Нечего закрывать.");
+    let Some(win) = resolve_focused_window(conn, screen)? else {
+        debug!("Фокус на Root или отсутствует. Нечего закрывать.");
         return Ok(());
     };
 
     // 3. Поднимаемся по дереву до top-level окна.
-    let Some(toplevel) = find_toplevel_window(conn, screen.root, target)? else {
-        println!("Не удалось найти top-level родителя, жёстко убиваем фокусное окно");
-        conn.kill_client(target)?;
+    let Some(toplevel_win) = find_toplevel_window(conn, screen.root, win)? else {
+        info!("Не удалось найти top-level родителя, жёстко убиваем фокусное окно");
+        conn.kill_client(win)?;
         conn.flush()?;
         return Ok(());
     };
-    println!("Окно найдено: {toplevel}");
+    println!("Окно найдено: {toplevel_win}");
 
     // 4. Проверяем поддержку WM_DELETE_WINDOW у клиента.
-    if window_supports_wm_delete(conn, toplevel, &atoms)? {
-        println!("Окно поддерживает WM_DELETE_WINDOW, отправляем ClientMessage");
-        send_wm_delete(conn, toplevel, &atoms)?;
+    if window_supports_wm_delete(conn, toplevel_win, &atoms)? {
+        info!("Окно поддерживает WM_DELETE_WINDOW, отправляем ClientMessage");
+        send_wm_delete(conn, toplevel_win, &atoms)?;
     } else {
-        println!("Окно НЕ поддерживает протокол закрытия. Применяем kill_client");
-        conn.kill_client(toplevel)?;
+        info!("Окно НЕ поддерживает протокол закрытия. Применяем kill_client");
+        conn.kill_client(toplevel_win)?;
     }
 
     conn.flush()?;
@@ -111,7 +115,7 @@ fn resolve_focused_window(
         && pointer.child != 0
     {
         focused = pointer.child;
-        println!("Фокус был PointerRoot. Мышь над окном: {focused}");
+        info!("Фокус был PointerRoot. Мышь над окном: {focused}");
     }
 
     // 0 или 1 — Root/None: закрывать нечего.
@@ -176,4 +180,27 @@ fn find_toplevel_window(
         }
         win = tree.parent;
     }
+}
+
+/// Изменяет циклически фокус окон
+fn cycle_focus(conn: &RustConnection, direction: Direction) -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = WORKSPACE.lock().unwrap();
+    if workspace.windows.is_empty() {
+        return Ok(());
+    }
+
+    let current = conn.get_input_focus()?.reply()?.focus;
+    let len = workspace.windows.len();
+
+    let next_idx = match workspace.windows.iter().position(|&w| w == current) {
+        Some(i) => match direction {
+            Direction::Next => (i + 1) % len,
+            Direction::Prev => (i + len - 1) % len,
+        },
+        None => 0,
+    };
+
+    conn.set_input_focus(InputFocus::POINTER_ROOT, workspace.windows[next_idx], CURRENT_TIME)?;
+    conn.flush()?;
+    Ok(())
 }

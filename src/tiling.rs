@@ -3,7 +3,7 @@ use x11rb::{
     protocol::xproto::{ConfigureWindowAux, ConnectionExt},
 };
 
-use crate::MASTER_RATIO;
+use crate::{BORDER_WIDTH, MASTER_RATIO};
 
 /// Описание видов тайлингов
 pub enum TilingType {
@@ -31,6 +31,7 @@ impl TilingType {
     }
 }
 
+/// Создаёт заранее прописаный по умолчанию конифгурацию области
 impl Default for Workspace {
     fn default() -> Self {
         Self {
@@ -48,9 +49,9 @@ fn arrange_for_stack(
     ws: &Workspace,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let windows_count = ws.windows.len();
-    let ignore_tiling_count_windows: u8 = 0;
 
-    if windows_count == ignore_tiling_count_windows as usize {
+    // Игнорируем расчёт геометрии при осутствии окон
+    if windows_count == 0 {
         return Ok(());
     }
 
@@ -61,7 +62,10 @@ fn arrange_for_stack(
     if windows_count == 1 {
         conn.configure_window(
             ws.windows[0],
-            &ConfigureWindowAux::new().x(0).y(0).width(sw).height(sh),
+            &ConfigureWindowAux::new()
+                .x(0).y(0)
+                .width(sw.saturating_sub(2 * BORDER_WIDTH))
+                .height(sh.saturating_sub(2 * BORDER_WIDTH)),
         )?;
         return Ok(());
     }
@@ -86,8 +90,8 @@ fn arrange_for_stack(
                 &ConfigureWindowAux::new()
                     .x(0)
                     .y(0)
-                    .width(master_w)
-                    .height(sh),
+                    .width(master_w.saturating_sub(2 * BORDER_WIDTH))
+                    .height(sh.saturating_sub(2 * BORDER_WIDTH)),
             )?;
         } else {
             // Окна стека справа, без отступов, плотно друг под другом.
@@ -106,8 +110,8 @@ fn arrange_for_stack(
                 &ConfigureWindowAux::new()
                     .x(master_w as i32)
                     .y(win_y as i32)
-                    .width(stack_w)
-                    .height(win_h),
+                    .width(stack_w.saturating_sub(2 * BORDER_WIDTH))
+                    .height(win_h.saturating_sub(2 * BORDER_WIDTH)),
             )?;
         }
     }

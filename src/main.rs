@@ -9,10 +9,9 @@ mod event_loop;
 mod keybinds;
 mod tiling;
 
-use crate::event_loop::{configure_windows, key_request, map_request, window_remover};
-use crate::keybinds::Action::{KillWindows, Spawn};
-use crate::keybinds::Keybind;
-use crate::keybinds::{Action::Quit, key_mods::*, keys};
+use crate::event_loop::{configure_windows, focus_in, focus_out, key_request, map_request, window_remover};
+use crate::keybinds::Direction;
+use crate::keybinds::{Keybind, Action::*, key_mods::*, keys};
 use crate::tiling::{TilingType, Workspace};
 
 // File configuration
@@ -62,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             true,
             screen.root,
             ModMask::from(bind.mods),
-            bind.button,
+            bind.keysym,
             GrabMode::ASYNC,
             GrabMode::ASYNC,
         )?;
@@ -80,8 +79,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             x11rb::protocol::Event::MapRequest(e) => map_request(&conn, e)?,
 
             x11rb::protocol::Event::UnmapNotify(e) => window_remover(&conn, e)?,
+
             // Обработка событий клавишь
             x11rb::protocol::Event::KeyPress(e) => key_request(&conn, e, screen)?,
+
+            x11rb::protocol::Event::FocusIn(e) => focus_in(&conn, e)?,
+            x11rb::protocol::Event::FocusOut(e) => focus_out(&conn, e)?,
+
             _ => {}
         }
     }

@@ -72,11 +72,18 @@ pub mod keys {
     pub const F12: u8 = 96;
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum Direction {
+    Next,
+    Prev
+}
+
 /// Действия, которые могут выполнять кеймапы
 #[derive(Clone, Copy)]
 pub enum Action {
     Spawn(&'static str),
     KillWindows,
+    Focus(Direction),
     Quit,
 }
 
@@ -93,7 +100,7 @@ pub mod key_mods {
 /// Описание кеймапа
 pub struct Keybind {
     pub mods: u16,
-    pub button: u8,
+    pub keysym: u8,
     pub action: Action,
 }
 
@@ -107,7 +114,7 @@ impl Keybind {
         }
         Self {
             mods: mask,
-            button,
+            keysym: button,
             action,
         }
     }
